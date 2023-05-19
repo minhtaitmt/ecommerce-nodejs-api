@@ -26,7 +26,7 @@ const upload = multer({
             callback(null, false)
             const err = new Error('Only .png, .jpg and .jpeg format supported!')
             err.name = 'ExtensionError'
-            return cb(err);
+            return callback(err);
         }
     },
     limits: {
