@@ -107,9 +107,10 @@ router.put(
 		}
 
 		const updateProd = req.body;
-		updateProd.img = [];
+		
 
 		if (req.files.length > 0) {
+			updateProd.img = [];
 			const uploadPromises = req.files.map((file) => {
 				return new Promise((resolve, reject) => {
 					uploadCloud(file.buffer, (error, result) => {
