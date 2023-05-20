@@ -115,7 +115,7 @@ router.put(
 						},
 						{ new: true }
 					);
-				const { password, avatar, ...others } =
+				const { password, ...others } =
 					updatedCustomer._doc; // tra ve thong tin user ngoai tru password
 				res.status(200).json(others);
 				return;
