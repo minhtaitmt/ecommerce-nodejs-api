@@ -6,29 +6,47 @@ const jwt = require("jsonwebtoken");
 const OtpGenerator = require("otp-generator");
 const nodemailer = require("nodemailer");
 const { verifyTokenAndAdmin } = require("./verifyToken");
-const upload = require("../middleware/upload")
+const upload = require("../middleware/upload");
+
+const cloudinary = require("../config/cloudinary");
+let streamifier = require("streamifier");
+
+const uploadCloud = (buffer, callback) => {
+	let cld_upload_stream = cloudinary.uploader.upload_stream(
+		{
+			folder: "ecommerce_nodejs",
+		},
+		async function (error, result) {
+			callback(error, result);
+		}
+	);
+
+	streamifier.createReadStream(buffer).pipe(cld_upload_stream);
+};
 
 // ADMIN REGISTER
-router.post("/admin-register", verifyTokenAndAdmin, async (req, res) => { // dùng otp generator để tạo một chuỗi otp 10 ký tự làm password 
+router.post("/admin-register", verifyTokenAndAdmin, async (req, res) => {
+	// dùng otp generator để tạo một chuỗi otp 10 ký tự làm password
 	const password = OtpGenerator.generate(10, {
 		digits: true,
 		lowerCaseAlphabets: true,
 		upperCaseAlphabets: true,
 		specialChars: false,
 	});
-	const admin = Admin.find({id: req.body.id})
-	if(admin){
+	const admin = Admin.find({ id: req.body.id });
+	if (admin) {
 		return res.status(500).json("Id này đang được sử dụng!");
 	}
-	const newAdmin = new Admin({//rồi gửi email password về req.body.email
+	const newAdmin = new Admin({
+		//rồi gửi email password về req.body.email
 		id: req.body.id,
-        fullname: req.body.fullname,
-        phone: req.body.phone,
-        gender: req.body.gender,
-        address: req.body.address,
-        birth: req.body.birth,
-        email: req.body.email,
-        role: req.body.role,
+		fullname: req.body.fullname,
+		phone: req.body.phone,
+		gender: req.body.gender,
+		address: req.body.address,
+		birth: req.body.birth,
+		email: req.body.email,
+		role: req.body.role,
 		password: CryptoJS.AES.encrypt(
 			password,
 			process.env.PASSWORD_SEC
@@ -47,29 +65,30 @@ router.post("/admin-register", verifyTokenAndAdmin, async (req, res) => { // dù
 					<p>Tên đăng nhập: <b>${req.body.id}</b></p>
 					<p>Mật khẩu: <b>${password}</b></p>
 					<p><b>Vui lòng không chia sẻ tài khoản truy cập hệ thống với bất kỳ ai! </b></p><br>
-					<p>Regard.<p/>`
+					<p>Regard.<p/>`;
 
 	await transporter.sendMail(
 		{
 			from: "smiler170801@gmail.com",
 			to: req.body.email,
-			subject: "Tài khoản truy cập hệ thống quản lý bán quần áo trực tuyến!",
+			subject:
+				"Tài khoản truy cập hệ thống quản lý bán quần áo trực tuyến!",
 			text: password,
 			html: html,
 		},
 		(error, info) => {
 			if (error) {
-				console.log(error)
-				return res.status(500).json("Có lỗi xảy ra trong lúc gửi email!");
-				
+				console.log(error);
+				return res
+					.status(500)
+					.json("Có lỗi xảy ra trong lúc gửi email!");
 			}
 		}
 	);
 	try {
-		
 		const savedAdmin = await newAdmin.save();
 		const { password, ...others } = savedAdmin._doc;
-		res.status(201).json({...others});
+		res.status(201).json({ ...others });
 		return;
 	} catch (err) {
 		res.status(500).json("Oops! Something went wrong...");
@@ -83,7 +102,7 @@ router.post("/admin-login", async (req, res) => {
 		const admin = await Admin.findOne({
 			id: req.body.id,
 		});
-		if(!admin){
+		if (!admin) {
 			return res.status(401).json("Wrong username or password!");
 		}
 
@@ -94,10 +113,10 @@ router.post("/admin-login", async (req, res) => {
 
 		const Originalpassword = hashedPassword.toString(CryptoJS.enc.Utf8);
 
-		if(Originalpassword != req.body.password){
+		if (Originalpassword != req.body.password) {
 			return res.status(401).json("Wrong username or password!");
 		}
-			
+
 		const accessToken = jwt.sign(
 			{
 				id: admin.id,
@@ -113,14 +132,13 @@ router.post("/admin-login", async (req, res) => {
 	}
 });
 
-
 // CUSTOMER LOGIN
 router.post("/customer-login", async (req, res) => {
 	try {
 		const customer = await Customer.findOne({
 			username: req.body.username,
 		});
-		if(!customer){
+		if (!customer) {
 			res.status(401).json("Wrong username or password!");
 			return;
 		}
@@ -132,11 +150,11 @@ router.post("/customer-login", async (req, res) => {
 
 		const Originalpassword = hashedPassword.toString(CryptoJS.enc.Utf8);
 
-		if (Originalpassword != req.body.password){
+		if (Originalpassword != req.body.password) {
 			res.status(401).json("Wrong username or password!");
 			return;
 		}
-			
+
 		const accessToken = jwt.sign(
 			{
 				id: customer._id,
@@ -147,7 +165,6 @@ router.post("/customer-login", async (req, res) => {
 		);
 		const { password, ...others } = customer._doc;
 		res.status(200).json({ ...others, accessToken });
-		
 	} catch (err) {
 		res.status(500).json(err);
 		return;
@@ -155,30 +172,54 @@ router.post("/customer-login", async (req, res) => {
 });
 
 // CUSTOMER REGISTER
-router.post("/customer-register", upload.single("avatar"), async (req, res) => {
-	const newCustomer = new Customer({
+router.post("/customer-register", upload.array("avatar", 1), async (req, res) => {
+	let form = {
 		username: req.body.username,
-        fullname: req.body.fullname,
-        phone: req.body.phone,
-        gender: req.body.gender,
-        address: req.body.address,
-        birth: req.body.birth,
-        email: req.body.email,
-		password: CryptoJS.AES.encrypt( // hash password
+		fullname: req.body.fullname,
+		phone: req.body.phone,
+		gender: req.body.gender,
+		address: req.body.address,
+		birth: req.body.birth,
+		email: req.body.email,
+		password: CryptoJS.AES.encrypt(
+			// hash password
 			req.body.password,
 			process.env.PASSWORD_SEC
 		).toString(),
-		avatar: req.file.path
+		avatar: "",
+	};
+	
+
+	const uploadPromises = req.files.map((file) => {
+		return new Promise((resolve, reject) => {
+			uploadCloud(file.buffer, (error, result) => {
+				if (error) {
+					reject(error);
+				} else {
+					resolve(result.url);
+				}
+			});
+		});
 	});
 
-	try {
-		const savedCustomer = await newCustomer.save();
-		const { password, ...others } = savedCustomer._doc; //tra ve thong tin user ngoai tru password
-		res.status(200).json({...others});
-	} catch (err) {
-		res.status(500).json(err);
-		console.log("error")
-	}
+	Promise.all(uploadPromises)
+		.then(async (uploadedUrls) => {
+			form.avatar = uploadedUrls[0];
+			try {
+				console.log(form)
+				const newCustomer = new Customer(form);
+				const savedCustomer = await newCustomer.save();
+				const { password, ...others } = savedCustomer._doc; //tra ve thong tin user ngoai tru password
+				res.status(200).json({ ...others });
+			} catch (err) {
+				res.status(500).json(err);
+			}
+		})
+		.catch((error) => {
+			console.error(error);
+		});
+
+	
 });
 
 module.exports = router;

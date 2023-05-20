@@ -5,88 +5,168 @@ const {
 	verifyTokenAndQLkho,
 } = require("./verifyToken");
 
-const upload = require("../middleware/upload")
+const upload = require("../middleware/upload");
 
 const router = require("express").Router();
 
-// CREATE
-router.post("/", upload.array("img", 10), verifyTokenAndQLsanpham, async (req, res) => {
-	if(req.body.quantity){
-		return res.status(403).json("Cannot create product with quantity!");
-	}
-	if(req.body.color){
-		req.body.color = req.body.color.split(", ")
-	}
-	if(req.body.size){
-		req.body.size = req.body.size.split(", ")
-	}
-	if(req.body.categories){
-		req.body.categories = req.body.categories.split(", ")
-	}
-	const newProd = req.body
-	newProd.img = []
+const cloudinary = require("../config/cloudinary");
+let streamifier = require("streamifier");
 
-	if(req.files.length > 0){
-		for(let x = 0; x < req.files.length; x++){
-			newProd.img[x] = req.files[x].path
+const uploadCloud = (buffer, callback) => {
+	let cld_upload_stream = cloudinary.uploader.upload_stream(
+		{
+			folder: "ecommerce_nodejs",
+		},
+		async function (error, result) {
+			callback(error, result);
+		}
+	);
+
+	streamifier.createReadStream(buffer).pipe(cld_upload_stream);
+};
+
+// CREATE
+router.post(
+	"/",
+	verifyTokenAndQLsanpham,
+	upload.array("img", 10),
+	async (req, res) => {
+		if (req.body.color) {
+			req.body.color = req.body.color.split(", ");
+		}
+		if (req.body.size) {
+			req.body.size = req.body.size.split(", ");
+		}
+		if (req.body.categories) {
+			req.body.categories = req.body.categories.split(", ");
+		}
+
+		const newProd = req.body;
+		newProd.img = [];
+
+		if (req.files.length > 0) {
+			const uploadPromises = req.files.map((file) => {
+				return new Promise((resolve, reject) => {
+					uploadCloud(file.buffer, (error, result) => {
+						if (error) {
+							reject(error);
+						} else {
+							resolve(result.url);
+						}
+					});
+				});
+			});
+
+			Promise.all(uploadPromises)
+				.then(async (uploadedUrls) => {
+					newProd.img = uploadedUrls;
+					const newProduct = new Product(newProd);
+					try {
+						const savedProduct = await newProduct.save();
+						return res.status(200).json(savedProduct);
+					} catch (err) {
+						res.status(500).json(
+							"Oops! Something went wrong while creating product."
+						);
+					}
+				})
+				.catch((error) => {
+					console.error(error);
+				});
+		} else {
+			const newProduct = new Product(newProd);
+			try {
+				const savedProduct = await newProduct.save();
+				return res.status(200).json(savedProduct);
+			} catch (err) {
+				res.status(500).json(
+					"Oops! Something went wrong while creating product."
+				);
+			}
 		}
 	}
-	const newProduct = new Product(newProd);
-
-	try {
-		const savedProduct = await newProduct.save();
-		return res.status(200).json(savedProduct);
-	} catch (err) {
-		res.status(500).json("Oops! Something went wrong while creating product.");
-	}
-});
+);
 
 // UPDATE 									// upload multiple files with number of files limitation is 10
-router.put("/info/:id", upload.array("img", 10), verifyTokenAndQLsanpham, async (req, res) => {  
-	if(req.body.quantity){
-		return res.status(403).json("Cannot update product quantity!");
-	}
-	if(req.body.color){
-		req.body.color = req.body.color.split(", ")
-	}
-	if(req.body.size){
-		req.body.size = req.body.size.split(", ")
-	}
-	if(req.body.categories){
-		req.body.categories = req.body.categories.split(", ")
-	}
-
-	const updateProd = req.body
-	updateProd.img = []
-
-	if(req.files.length > 0){
-		for(let x = 0; x < req.files.length; x++){
-			updateProd.img[x] = req.files[x].path
+router.put(
+	"/info/:id",
+	upload.array("img", 10),
+	verifyTokenAndQLsanpham,
+	async (req, res) => {
+		if (req.body.quantity) {
+			return res.status(403).json("Cannot update product quantity!");
 		}
+		if (req.body.color) {
+			req.body.color = req.body.color.split(", ");
+		}
+		if (req.body.size) {
+			req.body.size = req.body.size.split(", ");
+		}
+		if (req.body.categories) {
+			req.body.categories = req.body.categories.split(", ");
+		}
+
+		const updateProd = req.body;
+		updateProd.img = [];
+
+		if (req.files.length > 0) {
+			const uploadPromises = req.files.map((file) => {
+				return new Promise((resolve, reject) => {
+					uploadCloud(file.buffer, (error, result) => {
+						if (error) {
+							reject(error);
+						} else {
+							resolve(result.url);
+						}
+					});
+				});
+			});
+
+			Promise.all(uploadPromises)
+				.then(async (uploadedUrls) => {
+					updateProd.img = uploadedUrls;
+					try {
+						const updatedProduct = await Product.findByIdAndUpdate(
+							req.params.id,
+							{
+								$set: updateProd,
+							},
+							{ new: true }
+						);
+						res.status(200).json(updatedProduct);
+					} catch (err) {
+						res.status(500).json(err);
+					}
+				})
+				.catch((error) => {
+					console.error(error);
+				});
+		} else {
+			try {
+				const updatedProduct = await Product.findByIdAndUpdate(
+					req.params.id,
+					{
+						$set: updateProd,
+					},
+					{ new: true }
+				);
+				res.status(200).json(updatedProduct);
+			} catch (err) {
+				res.status(500).json(err);
+			}
+		}
+		
 	}
-	try {
-		const updatedProduct = await Product.findByIdAndUpdate(
-			req.params.id,
-			{
-				$set: updateProd,
-			},
-			{ new: true }
-		);
-		res.status(200).json(updatedProduct);
-	} catch (err) {
-		res.status(500).json(err);
-	}
-});
+);
 
 // UPDATE QUANTITY
 router.put("/quantity/:id", verifyTokenAndQLkho, async (req, res) => {
-
 	try {
 		const updatedProduct = await Product.findByIdAndUpdate(
 			req.params.id,
 			{
 				$set: {
-					quantity: req.body.quantity
+					quantity: req.body.quantity,
 				},
 			},
 			{ new: true }
@@ -103,17 +183,17 @@ router.put("/delete/:id", verifyTokenAndQLsanpham, (req, res) => {
 		Product.findByIdAndDelete({
 			_id: req.params.id,
 		})
-		.then(result => {
-			if (!result.value || result.deletedCount <= 0) {
-				res.status(200).json('Product was deleted!');
-			} else {
-				res.status(200).json('Product has been deleted!');
-			}
-		  })
-		  .catch(error => {
-			console.error('Failed to delete product', error);
-			res.status(500).json({ error: 'Failed to delete product' });
-		  });
+			.then((result) => {
+				if (!result.value || result.deletedCount <= 0) {
+					res.status(200).json("Product was deleted!");
+				} else {
+					res.status(200).json("Product has been deleted!");
+				}
+			})
+			.catch((error) => {
+				console.error("Failed to delete product", error);
+				res.status(500).json({ error: "Failed to delete product" });
+			});
 	} catch (err) {
 		res.status(500).json(err);
 	}
@@ -155,7 +235,7 @@ router.get("/", async (req, res) => {
 				},
 			});
 		} else {
-			products = await Product.find({active: true});
+			products = await Product.find({ active: true });
 		}
 
 		res.status(200).json(products);

@@ -2,18 +2,30 @@ const Customer = require("../models/Customer");
 const CryptoJS = require("crypto-js");
 const OtpGenerator = require("otp-generator");
 const nodemailer = require("nodemailer");
-const upload = require("../middleware/upload")
+const upload = require("../middleware/upload");
+const cloudinary = require("../config/cloudinary");
+let streamifier = require("streamifier");
 
-const {
-	verifyTokenAndCSKH,
-	verifyTokenAndUser,
-} = require("./verifyToken");
+const uploadCloud = (buffer, callback) => {
+	let cld_upload_stream = cloudinary.uploader.upload_stream(
+		{
+			folder: "ecommerce_nodejs",
+		},
+		async function (error, result) {
+			callback(error, result);
+		}
+	);
+
+	streamifier.createReadStream(buffer).pipe(cld_upload_stream);
+};
+
+const { verifyTokenAndCSKH, verifyTokenAndUser } = require("./verifyToken");
 
 const router = require("express").Router();
 
 // ADMIN UPDATE
 router.put("/admin-update/:id", verifyTokenAndCSKH, async (req, res) => {
-	if(req.body.username || req.body.password){
+	if (req.body.username || req.body.password) {
 		res.status(500).json("Cannot update username and password of customer");
 		return;
 	}
@@ -26,7 +38,7 @@ router.put("/admin-update/:id", verifyTokenAndCSKH, async (req, res) => {
 			{ new: true }
 		);
 		const { password, ...others } = updatedCustomer._doc;
-		res.status(200).json({...others});
+		res.status(200).json({ ...others });
 		return;
 	} catch (err) {
 		res.status(500).json(err);
@@ -35,47 +47,98 @@ router.put("/admin-update/:id", verifyTokenAndCSKH, async (req, res) => {
 });
 
 // CUSTOMER UPDATE
-router.put("/update/:id", upload.single("avatar"), verifyTokenAndUser, async (req, res) => {
-	if(req.body.username || req.body.password){
-		res.status(500).json("Cannot update username or password: Do not try to update your username or password!");
-		return;
+router.put(
+	"/update/:id",
+	upload.array("avatar", 1),
+	verifyTokenAndUser,
+	async (req, res) => {
+		if (req.body.username || req.body.password) {
+			res.status(500).json(
+				"Cannot update username or password: Do not try to update your username or password!"
+			);
+			return;
+		}
+		let newCustomer = {
+			fullname: req.body.fullname,
+			phone: req.body.phone,
+			gender: req.body.gender,
+			address: req.body.address,
+			birth: req.body.birth,
+		};
+		if (req.files.length > 0) {
+			const uploadPromises = req.files.map((file) => {
+				return new Promise((resolve, reject) => {
+					uploadCloud(file.buffer, (error, result) => {
+						if (error) {
+							reject(error);
+						} else {
+							resolve(result.url);
+						}
+					});
+				});
+			});
+
+			Promise.all(uploadPromises)
+				.then(async (uploadedUrls) => {
+					newCustomer.avatar = uploadedUrls[0];
+
+					try {
+						const updatedCustomer =
+							await Customer.findByIdAndUpdate(
+								req.params.id,
+								{
+									$set: newCustomer,
+								},
+								{ new: true }
+							);
+						const { password, ...others } =
+							updatedCustomer._doc; // tra ve thong tin user ngoai tru password
+						res.status(200).json(others);
+						return;
+					} catch (err) {
+						res.status(500).json(
+							"Something went wrong while updating information."
+						);
+						return;
+					}
+				})
+				.catch((error) => {
+					console.error(error);
+				});
+		} else {
+			try {
+				const updatedCustomer =
+					await Customer.findByIdAndUpdate(
+						req.params.id,
+						{
+							$set: newCustomer,
+						},
+						{ new: true }
+					);
+				const { password, avatar, ...others } =
+					updatedCustomer._doc; // tra ve thong tin user ngoai tru password
+				res.status(200).json(others);
+				return;
+			} catch (err) {
+				res.status(500).json(
+					"Something went wrong while updating information."
+				);
+				return;
+			}
+		}
 	}
-	const newCustomer = {
-        fullname: req.body.fullname,
-        phone: req.body.phone,
-        gender: req.body.gender,
-        address: req.body.address,
-        birth: req.body.birth,
-	}
-	if(req.file){
-		newCustomer.avatar = req.file.path
-	}
-	try {
-		const updatedCustomer = await Customer.findByIdAndUpdate(
-			req.params.id,
-			{
-				$set: newCustomer,
-			},
-			{ new: true }
-		);
-		const { password, avatar, ...others } = updatedCustomer._doc; // tra ve thong tin user ngoai tru password
-		res.status(200).json(avatar);
-		return;
-	} catch (err) {
-		res.status(500).json("Something went wrong while updating information.");
-		return;
-	}
-});
+);
 
 // RESET PASSWORD
 router.put("/reset-password", verifyTokenAndUser, async (req, res) => {
 	const customer = await Customer.findOne({
 		username: req.body.username,
 	});
-	if(!customer){
+	if (!customer) {
 		return res.status(401).json("Cannot find any user with this username!");
 	}
-	const password = OtpGenerator.generate(10, { // tao ra chuoi 10 ky tu lam password tam thoi va gui vao email user
+	const password = OtpGenerator.generate(10, {
+		// tao ra chuoi 10 ky tu lam password tam thoi va gui vao email user
 		digits: true,
 		lowerCaseAlphabets: true,
 		upperCaseAlphabets: true,
@@ -98,13 +161,14 @@ router.put("/reset-password", verifyTokenAndUser, async (req, res) => {
 					<p>Tên đăng nhập: <b>${req.body.username}</b></p>
 					<p>Mật khẩu: <b>${password}</b></p>
 					<p><b>Vui lòng thay đổi mật khẩu ngay sau khi bạn đăng nhập lại vào hệ thống! </b></p><br>
-					<p>Regard.<p/>`
+					<p>Regard.<p/>`;
 
 	await transporter.sendMail(
 		{
 			from: "smiler170801@gmail.com",
 			to: customer.email,
-			subject: "Tài khoản truy cập hệ thống bán quần áo trực tuyến AUGUST!",
+			subject:
+				"Tài khoản truy cập hệ thống bán quần áo trực tuyến AUGUST!",
 			text: password,
 			html: html,
 		},
@@ -113,15 +177,13 @@ router.put("/reset-password", verifyTokenAndUser, async (req, res) => {
 				return res
 					.status(500)
 					.json("Có lỗi xảy ra trong lúc gửi email!");
-				
 			}
-
 		}
 	);
 
 	try {
 		const updatedCustomer = await Customer.findOneAndUpdate(
-			{username: req.body.username},
+			{ username: req.body.username },
 			{
 				$set: {
 					password: hashed_password,
@@ -130,7 +192,7 @@ router.put("/reset-password", verifyTokenAndUser, async (req, res) => {
 			},
 			{ new: true }
 		);
-		
+
 		const { password, ...others } = updatedCustomer._doc;
 		res.status(200).json("Please check your email!");
 		return;
@@ -142,9 +204,8 @@ router.put("/reset-password", verifyTokenAndUser, async (req, res) => {
 
 // CHANGE PASSWORD
 router.put("/change-password", verifyTokenAndUser, async (req, res) => {
-
 	const customer = await Customer.findById(req.body.customerId);
-	if(!customer){
+	if (!customer) {
 		return res.status(401).json("Cannot find any user with this id!");
 	}
 	const hashedPassword = CryptoJS.AES.decrypt(
@@ -154,10 +215,9 @@ router.put("/change-password", verifyTokenAndUser, async (req, res) => {
 
 	const Originalpassword = hashedPassword.toString(CryptoJS.enc.Utf8);
 
-	if(Originalpassword != req.body.password){
+	if (Originalpassword != req.body.password) {
 		return res.status(401).json("Wrong password. Please try again!");
 	}
-
 
 	try {
 		const updatedCustomer = await Customer.findByIdAndUpdate(
@@ -173,7 +233,7 @@ router.put("/change-password", verifyTokenAndUser, async (req, res) => {
 			},
 			{ new: true }
 		);
-	
+
 		res.status(200).json("Successfully change password!");
 		return;
 	} catch (err) {
@@ -195,7 +255,7 @@ router.put("/delete/:id", verifyTokenAndCSKH, async (req, res) => {
 			{ new: true }
 		);
 		const { password, ...others } = updatedCustomer._doc;
-		res.status(200).json({...others});
+		res.status(200).json({ ...others });
 		return;
 	} catch (err) {
 		res.status(500).json(err);
@@ -221,11 +281,11 @@ router.get("/", verifyTokenAndCSKH, async (req, res) => {
 		const customers = query
 			? await Customer.find().sort({ _id: -1 }).limit(5)
 			: await Customer.find();
-		let result = []
-		customers.map(data =>{
-			const {password, ...others} = data._doc;
-			result.push({...others})
-		})
+		let result = [];
+		customers.map((data) => {
+			const { password, ...others } = data._doc;
+			result.push({ ...others });
+		});
 		res.status(200).json(result);
 	} catch (err) {
 		res.status(500).json(err);
@@ -257,7 +317,5 @@ router.get("/stats", verifyTokenAndCSKH, async (req, res) => {
 		res.status(500).json(err);
 	}
 });
-
-
 
 module.exports = router;
