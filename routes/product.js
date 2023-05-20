@@ -98,18 +98,22 @@ router.put("/quantity/:id", verifyTokenAndQLkho, async (req, res) => {
 });
 
 // DELETE
-router.put("/delete/:id", verifyTokenAndQLsanpham, async (req, res) => {
+router.put("/delete/:id", verifyTokenAndQLsanpham, (req, res) => {
 	try {
-		const updatedProduct = await Product.findByIdAndUpdate(
-			req.params.id,
-			{
-				$set: {
-					active: false
-				},
-			},
-			{ new: true }
-		);
-		res.status(200).json("Product has been deleted!");
+		Product.findByIdAndDelete({
+			_id: req.params.id,
+		})
+		.then(result => {
+			if (!result.value || result.deletedCount <= 0) {
+				res.status(200).json('Product was deleted!');
+			} else {
+				res.status(200).json('Product has been deleted!');
+			}
+		  })
+		  .catch(error => {
+			console.error('Failed to delete product', error);
+			res.status(500).json({ error: 'Failed to delete product' });
+		  });
 	} catch (err) {
 		res.status(500).json(err);
 	}

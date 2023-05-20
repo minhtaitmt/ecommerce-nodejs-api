@@ -38,6 +38,9 @@ app.use("/api/banner", bannerRoute);
 app.use("/api/category", categoryRoute);
 app.use("/api/otp", otpRoute);
 
+app.get("/", (req, res) => {
+	res.send("Hello world! API is running!!")
+})
 
 app.listen(process.env.PORT || 5000, () => {
 	console.log("backend server is running!!");
