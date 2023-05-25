@@ -8,21 +8,7 @@ const nodemailer = require("nodemailer");
 const { verifyTokenAndAdmin } = require("./verifyToken");
 const upload = require("../middleware/upload");
 
-const cloudinary = require("../config/cloudinary");
-let streamifier = require("streamifier");
-
-const uploadCloud = (buffer, callback) => {
-	let cld_upload_stream = cloudinary.uploader.upload_stream(
-		{
-			folder: "ecommerce_nodejs",
-		},
-		async function (error, result) {
-			callback(error, result);
-		}
-	);
-
-	streamifier.createReadStream(buffer).pipe(cld_upload_stream);
-};
+const uploadCloud = require("../utility/uploadCloud");
 
 // ADMIN REGISTER
 router.post("/admin-register", verifyTokenAndAdmin, async (req, res) => {
@@ -206,7 +192,6 @@ router.post("/customer-register", upload.array("avatar", 1), async (req, res) =>
 		.then(async (uploadedUrls) => {
 			form.avatar = uploadedUrls[0];
 			try {
-				console.log(form)
 				const newCustomer = new Customer(form);
 				const savedCustomer = await newCustomer.save();
 				const { password, ...others } = savedCustomer._doc; //tra ve thong tin user ngoai tru password
